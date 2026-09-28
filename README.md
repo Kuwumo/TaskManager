@@ -1,6 +1,8 @@
 # 任务管理器
 
-跨平台结构的 Windows 任务管理器核心版。界面使用 Qt 6 Widgets，构建使用 CMake。当前只实现 Windows 数据采集，Linux 与 macOS 的类放在 `src/platform/`，尚未加入编译。
+类似于 Windows 的任务管理器。界面和采集接口按跨平台来拆，当前先完成 Windows；Linux 以后接到同一套接口，macOS 视以后是否需要再做。
+
+界面使用 Qt 6 Widgets，构建使用 CMake。Linux 与 macOS 的类放在 `src/platform/`，尚未加入编译。
 
 ## 功能
 
