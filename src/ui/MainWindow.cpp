@@ -42,6 +42,7 @@ MainWindow::MainWindow(QWidget* parent)
                                  error.isEmpty() ? QStringLiteral("无法结束该进程。") : error);
         }
     });
+    // 明确排队到界面线程。采样在 QThread::run 里 emit，不能在那里直接改控件。
     connect(sampler_, &SamplerThread::snapshotReady, this, &MainWindow::onSnapshot, Qt::QueuedConnection);
     sampler_->start();
 }

@@ -29,6 +29,7 @@
 
 namespace {
 
+// 离开作用域时关闭 HANDLE。快照和进程句柄数量多，用它避免中途 return 漏关。
 struct ScopeHandle {
     HANDLE handle = nullptr;
     ~ScopeHandle()
@@ -39,6 +40,7 @@ struct ScopeHandle {
     }
 };
 
+// FILETIME 是两个 32 位字段，拼成 100 纳秒为单位的 64 位计数。
 quint64 fileTimeToU64(const FILETIME& value)
 {
     ULARGE_INTEGER integer{};
@@ -98,6 +100,8 @@ WindowsSystemMonitor::WindowsSystemMonitor()
     : network_(std::make_unique<WindowsNetworkTracker>())
     , pdh_(std::make_unique<PdhState>())
 {
+    // 英文计数器路径。中文 Windows 上本地化路径会变，PdhAddEnglishCounter 不受影响。
+    // 构造末尾先 Collect 一次，PDH 的速率计数器要有上一拍才有值。
     if (PdhOpenQueryW(nullptr, 0, &pdh_->query) != ERROR_SUCCESS) {
         pdh_.reset();
         return;
@@ -142,6 +146,8 @@ SystemSnapshot WindowsSystemMonitor::sample()
 
 bool WindowsSystemMonitor::terminateProcess(quint32 pid, QString* error)
 {
+    // PID 0 是空闲进程，PID 4 是 System。两者都不能结束。
+    // 结束自身会把监控线程一起杀掉，所以直接拒绝。
     const auto fail = [error](const QString& message) {
         if (error != nullptr) {
             *error = message;
@@ -267,6 +273,7 @@ void WindowsSystemMonitor::sampleSystem(SystemSnapshot* snapshot)
         snapshot->disk.bytesPerSec = haveDiskBytes && diskBytes > 0 ? static_cast<quint64>(diskBytes) : 0;
     }
 
+    // 通配符计数器每个网卡一项。回环流量不是对外网络，不计入整机曲线。
     auto sumInterfaces = [](PDH_HCOUNTER counter, QStringList* names) {
         double total = 0;
         bool any = false;
@@ -316,6 +323,9 @@ void WindowsSystemMonitor::sampleSystem(SystemSnapshot* snapshot)
 
 void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
 {
+    // GetSystemTimes：内核时间已包含空闲时间，整机总时间 = 内核 + 用户。
+    // 该值是所有逻辑处理器之和。进程 CPU = 进程时间增量 / 整机时间增量 × 100，
+    // 因此结果是「占整机的百分比」，不是单核百分比。
     FILETIME idleFt{};
     FILETIME kernelFt{};
     FILETIME userFt{};
@@ -368,6 +378,8 @@ void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
                     process.netBytesPerSec = rate->second;
                 }
 
+                // 工具帮助快照里 PID 0 的映像名是「[System Process]」。
+                // 它的 CPU 用系统空闲时间，而不是 OpenProcess（PID 0 打不开）。
                 if (process.pid == 0) {
                     foundIdle = true;
                     process.name = QStringLiteral("System Idle Process");
@@ -382,6 +394,8 @@ void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
 
                 ScopeHandle handle;
                 handle.handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process.pid);
+                // 受保护进程会拒绝打开。名称和 PID 仍然列出，CPU、内存、磁盘保持不可用。
+                // 网络不依赖进程句柄，上面已经按 PID 填过。
                 if (handle.handle == nullptr) {
                     snapshot->processes.push_back(process);
                     continue;
@@ -415,6 +429,8 @@ void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
                         process.cpuPercent = clampPercent(static_cast<double>(deltaCpu) * 100.0
                                                            / static_cast<double>(deltaTotal));
                     }
+                    // 间隔太短时字节/秒会抖。0.2 秒以下本拍不报磁盘速率。
+                    // 只加读写传输，不加 OtherTransferCount，避免把非文件 I/O 算进去。
                     if (previous != previous_.end() && previous->second.hasBaseline && previous->second.create == create
                         && haveIo && seconds >= 0.2) {
                         const quint64 deltaIo = ioBytes >= previous->second.ioBytes ? ioBytes - previous->second.ioBytes : 0;

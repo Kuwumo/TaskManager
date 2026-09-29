@@ -17,6 +17,7 @@ HistoryChart::HistoryChart(QWidget* parent)
 
 void HistoryChart::setYRange(double minimum, double maximum, AxisFormat format)
 {
+    // maximum <= minimum 表示调用方希望自动缩放，具体上限等 paintEvent 里看数据再定。
     format_ = format;
     if (maximum <= minimum) {
         autoScale_ = true;

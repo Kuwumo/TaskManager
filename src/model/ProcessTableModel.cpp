@@ -31,6 +31,7 @@ QVariant ProcessTableModel::data(const QModelIndex& index, int role) const
         return {};
     }
 
+    // 显示用格式化字符串，排序用 UserRole 里的原始数。两者必须分开，否则「9%」会排在「10%」后面。
     const bool display = role == Qt::DisplayRole;
     switch (index.column()) {
     case Name:

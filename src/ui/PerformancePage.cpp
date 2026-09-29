@@ -51,6 +51,7 @@ PerformancePage::PerformancePage(QWidget* parent)
 
 void PerformancePage::applySnapshot(const SystemSnapshot& snapshot)
 {
+    // 保留约 60 秒。更早的点从队头丢掉，曲线满宽后会向左滚动。
     history_.push_back(snapshot);
     while (history_.size() > 60) {
         history_.removeFirst();

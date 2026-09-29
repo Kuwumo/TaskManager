@@ -21,6 +21,7 @@ ProcessPage::ProcessPage(QWidget* parent)
     proxy_->setSourceModel(model_);
     proxy_->setFilterCaseSensitivity(Qt::CaseInsensitive);
     proxy_->setFilterKeyColumn(ProcessTableModel::Name);
+    // 按 UserRole 排序，CPU、内存和速率才是数值序，不是字符串序。
     proxy_->setSortRole(Qt::UserRole);
     proxy_->setDynamicSortFilter(true);
 
@@ -66,6 +67,7 @@ ProcessPage::ProcessPage(QWidget* parent)
 
 void ProcessPage::setProcesses(const QVector<ProcessSnapshot>& processes)
 {
+    // reset 会清掉选择。先记下 PID，模型换完再按 PID 选回去。
     const auto selected = selectedPid();
     model_->setProcesses(processes);
     if (!sortedOnce_ && !processes.isEmpty()) {

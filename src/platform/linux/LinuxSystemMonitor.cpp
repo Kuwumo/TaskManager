@@ -1,3 +1,4 @@
+// 占位。接入时优先读 /proc/stat、/proc/meminfo 和 /proc/<pid>/stat。
 #include "platform/linux/LinuxSystemMonitor.h"
 
 SystemSnapshot LinuxSystemMonitor::sample()

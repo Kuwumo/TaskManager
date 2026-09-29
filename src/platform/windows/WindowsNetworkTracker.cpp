@@ -19,7 +19,8 @@ void WINAPI networkEventCallback(PEVENT_RECORD record);
 
 namespace {
 
-// Microsoft-Windows-Kernel-Network
+// Microsoft-Windows-Kernel-Network 的提供程序 GUID。
+// 关键字掩码用全 1，否则 MatchAnyKeyword 为 0 时只会收到关键字为 0 的事件。
 const GUID kNetworkProvider = {
     0x7DD42A49, 0x5329, 0x4832, {0x8D, 0xFD, 0x43, 0xD9, 0x79, 0x15, 0x3A, 0x88}};
 
@@ -88,6 +89,7 @@ WindowsNetworkTracker::WindowsNetworkTracker()
              sessionName_.size() + 1,
              sessionName_.c_str());
 
+    // 上次异常退出可能留下同名会话。先按名字停掉，再重新 StartTrace。
     ControlTraceW(0, sessionName_.c_str(), session, EVENT_TRACE_CONTROL_STOP);
 
     properties.assign(sizeof(EVENT_TRACE_PROPERTIES) + (sessionName_.size() + 1) * sizeof(wchar_t), 0);
@@ -163,6 +165,8 @@ unsigned long WindowsNetworkTracker::startError() const
 
 std::unordered_map<std::uint32_t, std::uint64_t> WindowsNetworkTracker::takeRates()
 {
+    // 间隔过短时不换算速率，但仍清零，避免下一拍把积压字节算成尖峰。
+    // 这一拍没有事件的 PID 不会出现在结果里，调用方应把它当成 0。
     std::lock_guard<std::mutex> lock(mutex_);
     const auto now = std::chrono::steady_clock::now();
     const double seconds = std::chrono::duration<double>(now - lastTake_).count();
@@ -181,6 +185,8 @@ std::unordered_map<std::uint32_t, std::uint64_t> WindowsNetworkTracker::takeRate
 
 void WindowsNetworkTracker::stop()
 {
+    // CloseTrace 会让阻塞在 ProcessTrace 里的跟踪线程返回，然后再 join。
+    // 顺序不能反：先 join 会死等。
     if (trace_ != INVALID_PROCESSTRACE_HANDLE) {
         CloseTrace(static_cast<TRACEHANDLE>(trace_));
         trace_ = INVALID_PROCESSTRACE_HANDLE;
@@ -228,6 +234,9 @@ void WINAPI networkEventCallback(PEVENT_RECORD record)
 
 void WindowsNetworkTracker::onEvent(void* recordPtr)
 {
+    // 用 TDH 读清单里的属性名，不按固定偏移解析。不同 Windows 版本的事件布局会变。
+    // 任务名或操作码里带 send / recv / receive 才计入；连接、断开等事件没有这些词。
+    // PID 优先用事件属性，没有再用事件头。头里的 PID 经常是 System（4），不能当发送进程。
     auto* record = static_cast<PEVENT_RECORD>(recordPtr);
     ULONG size = 0;
     ULONG status = TdhGetEventInformation(record, 0, nullptr, nullptr, &size);

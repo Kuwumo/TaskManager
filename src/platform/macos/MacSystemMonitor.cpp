@@ -1,3 +1,4 @@
+// 占位。接入时可用 libproc 的 proc_pidinfo 和 host_statistics。
 #include "platform/macos/MacSystemMonitor.h"
 
 SystemSnapshot MacSystemMonitor::sample()
