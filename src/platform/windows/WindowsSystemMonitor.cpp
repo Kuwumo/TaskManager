@@ -126,9 +126,12 @@ SystemSnapshot WindowsSystemMonitor::sample()
 {
     SystemSnapshot snapshot;
     sampleSystem(&snapshot);
-    sampleProcesses(&snapshot);
+    const QString processError = sampleProcesses(&snapshot);
 
-    if (!network_->available()) {
+    // 进程表没采到时优先报枚举错误。网络权限提示不能盖住它，否则状态栏仍是「正在监控」。
+    if (!processError.isEmpty()) {
+        snapshot.statusMessage = processError;
+    } else if (!network_->available()) {
         const unsigned long code = network_->startError();
         if (code == ERROR_ACCESS_DENIED) {
             snapshot.statusMessage = QStringLiteral(
@@ -321,7 +324,7 @@ void WindowsSystemMonitor::sampleSystem(SystemSnapshot* snapshot)
     }
 }
 
-void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
+QString WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
 {
     // GetSystemTimes：内核时间已包含空闲时间，整机总时间 = 内核 + 用户。
     // 该值是所有逻辑处理器之和。进程 CPU = 进程时间增量 / 整机时间增量 × 100，
@@ -360,11 +363,16 @@ void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
     snap.handle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     std::unordered_map<quint32, PrevProc> nextPrevious;
     bool foundIdle = false;
+    QString enumerationError;
 
-    if (snap.handle != INVALID_HANDLE_VALUE) {
+    if (snap.handle == INVALID_HANDLE_VALUE) {
+        enumerationError = QStringLiteral("无法枚举进程。%1").arg(systemMessage(GetLastError()));
+    } else {
         PROCESSENTRY32W entry{};
         entry.dwSize = sizeof(entry);
-        if (Process32FirstW(snap.handle, &entry)) {
+        if (!Process32FirstW(snap.handle, &entry)) {
+            enumerationError = QStringLiteral("无法枚举进程。%1").arg(systemMessage(GetLastError()));
+        } else {
             do {
                 ProcessSnapshot process;
                 process.pid = entry.th32ProcessID;
@@ -451,7 +459,8 @@ void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
         }
     }
 
-    if (!foundIdle) {
+    // 快照或第一项失败时列表是空的。不要补 System Idle Process，否则界面只剩这一行，却像枚举成功了。
+    if (enumerationError.isEmpty() && !foundIdle) {
         ProcessSnapshot idle;
         idle.pid = 0;
         idle.name = QStringLiteral("System Idle Process");
@@ -463,5 +472,8 @@ void WindowsSystemMonitor::sampleProcesses(SystemSnapshot* snapshot)
         snapshot->processes.push_front(idle);
     }
 
+    // 失败时 nextPrevious 为空，丢掉上一拍基线。下一拍成功后 CPU 先显示不可用，
+    // 避免用跨过失败间隔的进程增量除以这一拍的系统时间。
     previous_ = std::move(nextPrevious);
+    return enumerationError;
 }

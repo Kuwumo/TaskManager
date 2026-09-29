@@ -39,7 +39,8 @@ private:
     struct PdhState;
 
     void sampleSystem(SystemSnapshot* snapshot);
-    void sampleProcesses(SystemSnapshot* snapshot);
+    // 填充进程列表。枚举失败时返回可直接显示的原因，成功返回空字符串。
+    QString sampleProcesses(SystemSnapshot* snapshot);
 
     std::unique_ptr<WindowsNetworkTracker> network_;
     std::unique_ptr<PdhState> pdh_;
